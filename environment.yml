@@ -5,5 +5,6 @@ channels:
   - defaults
 dependencies:
   # TODO nf-core: Add required software dependencies here
-  - fastqc=0.11.8
-  - multiqc=1.6
+  # - fastqc=0.11.8
+  # - multiqc=1.6
+  - mothur=1.41.0
