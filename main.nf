@@ -27,19 +27,17 @@ def helpMessage() {
 
     The typical command for running the pipeline is as follows:
 
-    nextflow run nf-core/metaamplicon --reads '*_R{1,2}.fastq.gz' -profile standard,docker
+    nextflow run nf-core/metaamplicon --reads 'data/*.fastq.gz' -profile standard,docker
 
     Mandatory arguments:
       --reads                       Path to input data (must be surrounded with quotes)
-      --genome                      Name of iGenomes reference
       -profile                      Configuration profile to use. Can use multiple (comma separated)
-                                    Available: standard, conda, docker, singularity, awsbatch, test
+                                    Available: standard, conda, docker, singularity, test
 
     Options:
       --singleEnd                   Specifies that the input is single end reads
-
-    References                      If not specified in the configuration file or you wish to overwrite any of the references.
-      --fasta                       Path to Fasta reference
+      --reference                   Specifies the reference alignments file of mothur
+	  --taxonomy					Specifies the taxonomy alignments file of mothur
 
     Other options:
       --outdir                      The output directory where the results will be saved
@@ -62,28 +60,12 @@ if (params.help){
     exit 0
 }
 
-// TODO nf-core: Add any reference files that are needed
-// Configurable reference genomes
-fasta = params.genome ? params.genomes[ params.genome ].fasta ?: false : false
-if ( params.fasta ){
-    fasta = file(params.fasta)
-    if( !fasta.exists() ) exit 1, "Fasta file not found: ${params.fasta}"
-}
-//
-// NOTE - THIS IS NOT USED IN THIS PIPELINE, EXAMPLE ONLY
-// If you want to use the above in a process, define the following:
-//   input:
-//   file fasta from fasta
-//
-
-
 // Has the run name been specified by the user?
 //  this has the bonus effect of catching both -name and --name
 custom_runName = params.name
 if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
   custom_runName = workflow.runName
 }
-
 
 if( workflow.profile == 'awsbatch') {
   // AWSBatch sanity checking
@@ -95,32 +77,30 @@ if( workflow.profile == 'awsbatch') {
 }
 
 // Stage config files
-multiqc_config = file(params.multiqc_config)
 output_docs = file("$baseDir/docs/output.md")
 
-/*
- * Create a channel for input read files
- */
- if(params.readPaths){
-     if(params.singleEnd){
-         Channel
-             .from(params.readPaths)
-             .map { row -> [ row[0], [file(row[1][0])]] }
-             .ifEmpty { exit 1, "params.readPaths was empty - no input files supplied" }
-             .into { read_files_fastqc; read_files_trimming }
-     } else {
-         Channel
-             .from(params.readPaths)
-             .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
-             .ifEmpty { exit 1, "params.readPaths was empty - no input files supplied" }
-             .into { read_files_fastqc; read_files_trimming }
-     }
- } else {
-     Channel
-         .fromFilePairs( params.reads, size: params.singleEnd ? 1 : 2 )
-         .ifEmpty { exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nIf this is single-end data, please specify --singleEnd on the command line." }
-         .into { read_files_fastqc; read_files_trimming }
- }
+
+if(params.singleEnd){
+    Channel
+        .fromPath(params.reads)
+        .ifEmpty { exit 1, "params.readPaths was empty - no input files supplied" }
+        .set { read_files }
+} else {
+    Channel
+        .fromFilePairs(params.reads, size: -1)
+        .ifEmpty { exit 1, "Cannot find any reads in directory: ${params.reads}\nNB: Path needs to be enclosed in quotes!" }
+        .set { read_files }
+}
+
+Channel
+	.fromPath(params.reference)
+	.ifEmpty { exit 1, "No reference alignments file found!" }
+	.set{ reference }
+
+Channel
+	.fromPath(params.taxonomy)
+	.ifEmpty { exit 1, "No taxonomy alignments file found!" }
+	.set{ taxonomy }
 
 
 // Header log info
@@ -139,8 +119,6 @@ summary['Pipeline Version'] = workflow.manifest.version
 summary['Run Name']     = custom_runName ?: workflow.runName
 // TODO nf-core: Report custom parameters here
 summary['Reads']        = params.reads
-summary['Fasta Ref']    = params.fasta
-summary['Data Type']    = params.singleEnd ? 'Single-End' : 'Paired-End'
 summary['Max Memory']   = params.max_memory
 summary['Max CPUs']     = params.max_cpus
 summary['Max Time']     = params.max_time
@@ -164,97 +142,178 @@ log.info summary.collect { k,v -> "${k.padRight(15)}: $v" }.join("\n")
 log.info "========================================="
 
 
-def create_workflow_summary(summary) {
-    def yaml_file = workDir.resolve('workflow_summary_mqc.yaml')
-    yaml_file.text  = """
-    id: 'nf-core-metaamplicon-summary'
-    description: " - this information is collected when the pipeline is started."
-    section_name: 'nf-core/metaamplicon Workflow Summary'
-    section_href: 'https://github.com/nf-core/metaamplicon'
-    plot_type: 'html'
-    data: |
-        <dl class=\"dl-horizontal\">
-${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style=\"color:#999999;\">N/A</a>'}</samp></dd>" }.join("\n")}
-        </dl>
-    """.stripIndent()
-
-   return yaml_file
-}
-
-
 /*
  * Parse software version numbers
  */
-process get_software_versions {
+// process get_software_versions {
 
-    output:
-    file 'software_versions_mqc.yaml' into software_versions_yaml
+//     output:
+//     file 'software_versions_mqc.yaml' into software_versions_yaml
 
-    script:
-    // TODO nf-core: Get all tools to print their version number here
-    """
-    echo $workflow.manifest.version > v_pipeline.txt
-    echo $workflow.nextflow.version > v_nextflow.txt
-    fastqc --version > v_fastqc.txt
-    multiqc --version > v_multiqc.txt
-    scrape_software_versions.py > software_versions_mqc.yaml
-    """
-}
+//     script:
+//     // TODO nf-core: Get all tools to print their version number here
+//     """
+//     echo $workflow.manifest.version > v_pipeline.txt
+//     echo $workflow.nextflow.version > v_nextflow.txt
+//     # fastqc --version > v_fastqc.txt
+//     # multiqc --version > v_multiqc.txt
+//     scrape_software_versions.py > software_versions_mqc.yaml
+//     """
+// }
+   
+// Use a temp dir for mothur's intermediate results
+// TODO: add a parameter for choosing not keep this dir when finish
+mothur_temp = file("${params.outdir}/mothur_temp")
+mothur_temp.mkdirs()
 
 
-
+// TODO: add a parameter for skipping this QC step
 /*
- * STEP 1 - FastQC
+ * STEP 1 - fastp
  */
-process fastqc {
-    tag "$name"
-    publishDir "${params.outdir}/fastqc", mode: 'copy',
-        saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
+if (params.singleEnd) {
+    process fastp_single {
+        publishDir "${params.outdir}/fastp", mode: 'copy'
 
-    input:
-    set val(name), file(reads) from read_files_fastqc
+        input:
+        file reads from read_files
 
-    output:
-    file "*_fastqc.{zip,html}" into fastqc_results
+        output:
+        file "*.{fastq,html,json}"
+        // TODO: simplify below using Groovy structures
+        file "*.fasta" into for_mothur0
+        file "*.qual" into for_mothur1
+        file "*.fasta" into for_group
+        
+        // Example: reads: DRR067825.fastq.gz; reads.baseName: DRR067825.fastq; reads.simpleName: DRR067825
+        // See https://github.com/nextflow-io/nextflow/issues/278
+        """
+        fastp -i ${reads} -o ${reads.baseName} -h ${reads.simpleName}.html -j ${reads.simpleName}.json       
+        mothur "#fastq.info(fastq=${reads.baseName})"
+        """
+    }
+    // We don't know when the intermediate files will be published so publishDir should not be used here
+    for_mothur0.subscribe { it.copyTo(mothur_temp) }
+    for_mothur1.subscribe { it.copyTo(mothur_temp) }
+} else {
+    process fastp_paired {
+        publishDir "${params.outdir}/fastp", mode: 'copy'
 
-    script:
-    """
-    fastqc -q $reads
-    """
+        input:
+        set name, file(reads) from read_files
+
+        output:
+        file "*.{fastq,html,json}"
+        // TODO: simplify below using Groovy structures
+        file "*.fastq" into for_mothur0
+        // Channel only for labelling this process is all finished
+        file '*.html' into done  
+        
+        """
+        fastp -i ${reads[0]} -I ${reads[1]} -o ${reads[0].baseName} -O ${reads[1].baseName} -h ${name}.html -j ${name}.json
+        # vsearch of current version (called by mothur's chimera.vsearch() function) cut too long seq names,
+        # which will cause "XXX is not in your count table. Please correct." error.
+        # So it is needed for pre-cut seq names here, I choose remove first 11 characters now.
+        # Update: This strategy will import new problems in down-stream analysis. Change vsearch to v2.8.0 temperarily.
+        """
+    }
+    for_mothur0.subscribe { it.each { it.copyTo(mothur_temp) } }
 }
 
 
-
 /*
- * STEP 2 - MultiQC
+ * STEP 2 - mothur in-box
  */
-process multiqc {
-    publishDir "${params.outdir}/MultiQC", mode: 'copy'
+if (params.singleEnd) {
+    process mothur_in_box_single {
+        input:
+        file fasta from for_group.collect()
+        file reference
+        file taxonomy
 
-    input:
-    file multiqc_config
-    // TODO nf-core: Add in log files from your new processes for MultiQC to find!
-    file ('fastqc/*') from fastqc_results.collect().ifEmpty([])
-    file ('software_versions/*') from software_versions_yaml
-    file workflow_summary from create_workflow_summary(summary)
+        // output:
+        // file 'final.opti_mcc.0.03.biom' into 'final.biom'
 
-    output:
-    file "*multiqc_report.html" into multiqc_report
-    file "*_data"
+        script:
+        """
+        #!/usr/bin/env mothur
+        # To make group file for single-end data
+        make.group(fasta=${fasta.join('-')}, groups=${fasta.collect { it.simpleName }.join('-')})
+        system(cp groups $workflow.launchDir/${params.outdir}/mothur_temp/merge.groups)
+        system(cat *.fasta > stability.trim.contigs.fasta)
+        system(cp stability.trim.contigs.fasta $workflow.launchDir/${params.outdir}/mothur_temp)
+        set.dir(input=$workflow.launchDir/${params.outdir}/mothur_temp, output=$workflow.launchDir/${params.outdir}/mothur_temp)
+        summary.seqs(fasta=stability.trim.contigs.fasta)
+        screen.seqs(fasta=stability.trim.contigs.fasta, group=merge.groups, summary=stability.trim.contigs.summary, optimize=maxlength, maxambig=0, criteria=97.5)
+        summary.seqs()
+        unique.seqs(fasta=stability.trim.contigs.good.fasta)
+        count.seqs(name=stability.trim.contigs.good.names, group=merge.good.groups)
+        summary.seqs(count=stability.trim.contigs.good.count_table)
+        align.seqs(fasta=stability.trim.contigs.good.unique.fasta, reference=$workflow.launchDir/${reference})
+        summary.seqs(fasta=stability.trim.contigs.good.unique.align, count=stability.trim.contigs.good.count_table)
+        screen.seqs(fasta=stability.trim.contigs.good.unique.align, count=stability.trim.contigs.good.count_table, summary=stability.trim.contigs.good.unique.summary, optimize=start-end, criteria=97.5, maxhomop=8)
+        summary.seqs(fasta=current, count=current)
+        filter.seqs(fasta=stability.trim.contigs.good.unique.good.align, vertical=T, trump=.)
+        unique.seqs(fasta=stability.trim.contigs.good.unique.good.filter.fasta, count=stability.trim.contigs.good.good.count_table)
+        pre.cluster(fasta=stability.trim.contigs.good.unique.good.filter.unique.fasta, count=stability.trim.contigs.good.unique.good.filter.count_table, diffs=3)
+        chimera.vsearch(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.count_table, dereplicate=t)
+        remove.seqs(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.fasta, accnos=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.accnos)
+        summary.seqs(fasta=current, count=current)
+        classify.seqs(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.count_table, reference=$workflow.launchDir/${reference}, taxonomy=$workflow.launchDir/${taxonomy}, cutoff=80, iters=1000)
+        remove.lineage(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.taxonomy, taxon=Chloroplast-Mitochondria-unknown-Eukaryota)
+        summary.tax(taxonomy=current, count=current)
+        cluster.split(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.pick.taxonomy, splitmethod=classify, taxlevel=4, cutoff=0.03)
+        make.shared(list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, label=0.03)
+        classify.otu(list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.pick.taxonomy, label=0.03)
+        get.oturep(column=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.dist, name=stability.trim.contigs.good.names, list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, fasta=stability.trim.contigs.good.unique.fasta)
+        rename.file(taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.0.03.cons.taxonomy, shared=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.shared, prefix=final)
+        make.biom(shared=final.opti_mcc.shared, constaxonomy=final.taxonomy)
+        """
+    }
+} else {
+    process mothur_in_box_paired {
+        input:
+        // Files are not really used here. Only to ensure that this process runs after the previous one
+        file done from done.collect()
+        file reference
+        file taxonomy
 
-    script:
-    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
-    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
-    // TODO nf-core: Specify which MultiQC modules to use with -m for a faster run time
-    """
-    multiqc -f $rtitle $rfilename --config $multiqc_config .
-    """
+        """
+        #!/usr/bin/env mothur
+        make.file(inputdir=$workflow.launchDir/${params.outdir}/mothur_temp)
+        make.contigs(file=stability.files, checkorient=t, processors=56)
+        summary.seqs(fasta=stability.trim.contigs.fasta)
+        screen.seqs(fasta=stability.trim.contigs.fasta, group=stability.contigs.groups, summary=stability.trim.contigs.summary, optimize=maxlength, maxambig=0, criteria=97.5)
+        summary.seqs()
+        unique.seqs(fasta=stability.trim.contigs.good.fasta)
+        count.seqs(name=stability.trim.contigs.good.names, group=stability.contigs.good.groups)
+        summary.seqs(count=stability.trim.contigs.good.count_table)
+        align.seqs(fasta=stability.trim.contigs.good.unique.fasta, reference=$workflow.launchDir/${reference})
+        summary.seqs(fasta=stability.trim.contigs.good.unique.align, count=stability.trim.contigs.good.count_table)
+        screen.seqs(fasta=stability.trim.contigs.good.unique.align, count=stability.trim.contigs.good.count_table, summary=stability.trim.contigs.good.unique.summary, optimize=start-end, criteria=97.5, maxhomop=8)
+        summary.seqs(fasta=current, count=current)
+        filter.seqs(fasta=stability.trim.contigs.good.unique.good.align, vertical=T, trump=.)
+        unique.seqs(fasta=stability.trim.contigs.good.unique.good.filter.fasta, count=stability.trim.contigs.good.good.count_table)
+        pre.cluster(fasta=stability.trim.contigs.good.unique.good.filter.unique.fasta, count=stability.trim.contigs.good.unique.good.filter.count_table, diffs=3)
+        chimera.vsearch(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.count_table, dereplicate=t)
+        remove.seqs(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.fasta, accnos=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.accnos)
+        summary.seqs(fasta=current, count=current)
+        classify.seqs(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.count_table, reference=$workflow.launchDir/${reference}, taxonomy=$workflow.launchDir/${taxonomy}, cutoff=80, iters=1000)
+        remove.lineage(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.taxonomy, taxon=Chloroplast-Mitochondria-unknown-Eukaryota)
+        summary.tax(taxonomy=current, count=current)
+        cluster.split(fasta=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.fasta, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.pick.taxonomy, splitmethod=classify, taxlevel=4, cutoff=0.03)
+        make.shared(list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, label=0.03)
+        classify.otu(list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, count=stability.trim.contigs.good.unique.good.filter.unique.precluster.denovo.vsearch.pick.pick.count_table, taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.gg.wang.pick.taxonomy, label=0.03)
+        get.oturep(column=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.dist, name=stability.trim.contigs.good.names, list=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.list, fasta=stability.trim.contigs.good.unique.fasta)
+        rename.file(taxonomy=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.0.03.cons.taxonomy, shared=stability.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.shared, prefix=final)
+        make.biom(shared=final.opti_mcc.shared, constaxonomy=final.taxonomy)
+        """
+    }
 }
 
 
-
 /*
- * STEP 3 - Output Description HTML
+ * Final step - Output Description HTML
  */
 process output_documentation {
     publishDir "${params.outdir}/Documentation", mode: 'copy'
@@ -270,7 +329,6 @@ process output_documentation {
     markdown_to_html.r $output_docs results_description.html
     """
 }
-
 
 
 /*

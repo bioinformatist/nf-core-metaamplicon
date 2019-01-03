@@ -4,4 +4,4 @@ LABEL authors="Yu Sun" \
 
 COPY environment.yml /
 RUN conda env create -f /environment.yml && conda clean -a
-ENV PATH /opt/conda/envs/nf-core-metaamplicon-dev/bin:$PATH
+ENV PATH /opt/conda/envs/nf-core-metaamplicon-0.1.0/bin:$PATH

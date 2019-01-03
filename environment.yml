@@ -1,4 +1,4 @@
-name: nf-core-metaamplicon-dev
+name: nf-core-metaamplicon-0.1.0
 channels:
   - conda-forge
   - bioconda
@@ -8,3 +8,6 @@ dependencies:
   # - fastqc=0.11.8
   # - multiqc=1.6
   - mothur=1.41.0
+  - vsearch=2.8.0
+  - fastp=0.19.5
+
