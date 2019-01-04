@@ -226,7 +226,7 @@ if (params.singleEnd) {
  */
 if (params.singleEnd) {
     process mothur_in_box_single {
-        conda 'bioconda::mothur=1.41.0'
+        beforeScript 'source activate amplicon'
 
         input:
         file fasta from for_group.collect()
@@ -274,7 +274,7 @@ if (params.singleEnd) {
     }
 } else {
     process mothur_in_box_paired {
-        conda 'bioconda::mothur=1.41.0'
+        beforeScript 'source activate amplicon'
         
         input:
         // Files are not really used here. Only to ensure that this process runs after the previous one
