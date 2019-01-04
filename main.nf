@@ -226,8 +226,6 @@ if (params.singleEnd) {
  */
 if (params.singleEnd) {
     process mothur_in_box_single {
-        beforeScript 'source activate amplicon'
-
         input:
         file fasta from for_group.collect()
         file reference
@@ -273,9 +271,7 @@ if (params.singleEnd) {
         """
     }
 } else {
-    process mothur_in_box_paired {
-        beforeScript 'source activate amplicon'
-        
+    process mothur_in_box_paired {     
         input:
         // Files are not really used here. Only to ensure that this process runs after the previous one
         file done from done.collect()
