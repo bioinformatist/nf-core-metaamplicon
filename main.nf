@@ -311,24 +311,26 @@ if (params.singleEnd) {
     }
 }
 
-
+// Temperarily cancel this process due to dependencies error:
+// /share/apps/anaconda3/lib/R/bin/exec/R: /lib64/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /share/apps/anaconda3/lib/R/bin/exec/../../lib/../../libicuuc.so.58)
+// TODO: fix it in conda
 /*
- * Final step - Output Description HTML
+ * Step - Output Description HTML
  */
-process output_documentation {
-    publishDir "${params.outdir}/Documentation", mode: 'copy'
+// process output_documentation {
+//     publishDir "${params.outdir}/Documentation", mode: 'copy'
 
-    input:
-    file output_docs
+//     input:
+//     file output_docs
 
-    output:
-    file "results_description.html"
+//     output:
+//     file "results_description.html"
 
-    script:
-    """
-    markdown_to_html.r $output_docs results_description.html
-    """
-}
+//     script:
+//     """
+//     markdown_to_html.r $output_docs results_description.html
+//     """
+// }
 
 
 /*
