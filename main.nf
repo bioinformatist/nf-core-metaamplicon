@@ -281,7 +281,7 @@ if (params.singleEnd) {
         """
         #!/usr/bin/env mothur
         make.file(inputdir=$workflow.launchDir/${params.outdir}/mothur_temp)
-        make.contigs(file=stability.files, checkorient=t, processors=56)
+        make.contigs(file=stability.files, checkorient=t, processors=96)
         summary.seqs(fasta=stability.trim.contigs.fasta)
         screen.seqs(fasta=stability.trim.contigs.fasta, group=stability.contigs.groups, summary=stability.trim.contigs.summary, optimize=maxlength, maxambig=0, criteria=97.5)
         summary.seqs()
